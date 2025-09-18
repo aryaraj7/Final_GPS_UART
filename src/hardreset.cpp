@@ -1,54 +1,58 @@
 #include "hardreset.h"
-#include <esp32-hal-gpio.h>
-#include <HardwareSerial.h>
-#include "config.h"
+
+// ================== Reset Timings ==================
+static unsigned long stateTimer = 0;
+const unsigned long powerOnHold = 1000;
+const unsigned long resetHold = 50;
+const unsigned long waitAfterReset = 4000; // wait 4 sec before AT commands
 
 RTC_DATA_ATTR bool hasReset = false;
-unsigned long stateTimer = 0;
 
-void initModule() {
-    pinMode(neoway.resetPin, OUTPUT);
-    pinMode(neoway.powerPin, OUTPUT);
-    digitalWrite(neoway.resetPin, HIGH);
-    digitalWrite(neoway.powerPin, LOW);
-    Serial2.begin(neoway.baudRate, SERIAL_8N1, neoway.rxPin, neoway.txPin);
-    Serial.println("Neoway N58 Initialized");
-}
+void handleHardReset() {
+    switch (currentState) {
+        case POWER_ON:
+            digitalWrite(neoway.powerPin, HIGH);
+            stateTimer = millis();
+            Serial.println("Power ON sequence started");
+            currentState = POWER_ON_WAIT;
+            break;
 
-void handlePowerOn() {
-    digitalWrite(neoway.powerPin, HIGH);
-    stateTimer = millis();
-    Serial.println("Power ON sequence started");
-    currentState = POWER_ON_WAIT;
-}
+        case POWER_ON_WAIT:
+            if (millis() - stateTimer >= powerOnHold) {
+                digitalWrite(neoway.powerPin, LOW);
+                Serial.println("Power ON sequence complete");
+                if (!hasReset) {
+                    currentState = RESETTING;
+                } else {
+                    currentState = READY;
+                }
+            }
+            break;
 
-void handlePowerOnWait() {
-    if (millis() - stateTimer >= powerOnHold) {
-        digitalWrite(neoway.powerPin, LOW);
-        Serial.println("Power ON complete");
-        currentState = (hasReset == false) ? RESETTING : READY;
-    }
-}
+        case RESETTING:
+            digitalWrite(neoway.resetPin, LOW);
+            stateTimer = millis();
+            currentState = RESET_HOLD_WAIT;
+            break;
 
-void handleResetting() {
-    digitalWrite(neoway.resetPin, LOW);
-    stateTimer = millis();
-    currentState = RESET_HOLD_WAIT;
-}
+        case RESET_HOLD_WAIT:
+            if (millis() - stateTimer >= resetHold) {
+                digitalWrite(neoway.resetPin, HIGH);
+                Serial.println("Reset sequence executing");
+                stateTimer = millis();
+                currentState = WAIT_AFTER_RESET;
+            }
+            break;
 
-void handleResetHoldWait() {
-    if (millis() - stateTimer >= resetHold) {
-        digitalWrite(neoway.resetPin, HIGH);
-        Serial.println("Reset triggered");
-        stateTimer = millis();
-        currentState = WAIT_AFTER_RESET;
-    }
-}
+        case WAIT_AFTER_RESET:
+            if (millis() - stateTimer >= waitAfterReset) {
+                Serial.println("Neoway ON");
+                hasReset = true;
+                currentState = SEND_AT_SEQUENCE;
+            }
+            break;
 
-void handleWaitAfterReset() {
-    if (millis() - stateTimer >= waitAfterReset) {
-        Serial.println("Neoway Ready");
-        hasReset = true;
-        currentState = SEND_AT_SEQUENCE;
+        default:
+            break;
     }
 }
