@@ -1,9 +1,11 @@
 #pragma once
-#include "config.h"
+#include <Arduino.h>
+#include "hardreset.h"
 
-bool sendATCommand(const String &command);
-bool sendATCommandWithRetry(const String &command, int maxRetries);
-String readResponse();
+// Externs
+extern bool serialAvailable;
+extern bool serial2Available;
 
+// Functions
 void handleSendATSequence();
 void handleReadyState();
